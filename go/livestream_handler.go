@@ -616,15 +616,15 @@ func fillLivestreamResponseBulk(ctx context.Context, tx *sqlx.Tx, livestreamMode
 		}
 
 		livestream := Livestream{
-			ID:           livestreamModel.ID,
-			Owner:        owner,
-			Title:        livestreamModel.Title,
-			Tags:         tags,
-			Description:  livestreamModel.Description,
-			PlaylistUrl:  livestreamModel.PlaylistUrl,
-			ThumbnailUrl: livestreamModel.ThumbnailUrl,
-			StartAt:      livestreamModel.StartAt,
-			EndAt:        livestreamModel.EndAt,
+	ID:           livestreamModel.ID,
+		Owner:        owner,
+		Title:        livestreamModel.Title,
+		Tags:         tags,
+		Description:  livestreamModel.Description,
+		PlaylistUrl:  livestreamModel.PlaylistUrl,
+		ThumbnailUrl: livestreamModel.ThumbnailUrl,
+		StartAt:      livestreamModel.StartAt,
+		EndAt:        livestreamModel.EndAt,
 		}
 
 		livestreams[i] = livestream

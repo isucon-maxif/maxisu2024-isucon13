@@ -506,87 +506,122 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 
 // N+1問題を解消するためにbulkで取得する
 func fillUserResponseBulk(ctx context.Context, tx *sqlx.Tx, userModels []*UserModel) ([]User, error) {
-	if len(userModels) == 0 {
-		return []User{}, nil
-	}
+	// if len(userModels) == 0 {
+	// 	return []User{}, nil
+	// }
+	// cachedUsers := make([]User, 0, len(userModels))
+	// uncachedUserModels := make([]*UserModel, 0, len(userModels))
 
-	// user_idのリストを作成
-	userIDs := make([]int64, len(userModels))
-	for i, userModel := range userModels {
-		userIDs[i] = userModel.ID
-	}
+	// UserByIDCacheMutex.RLock()
+	// for _, userModel := range userModels {
+	// 	if user, ok := UserByIDCache[userModel.ID]; ok {
+	// 		cachedUsers = append(cachedUsers, user)
+	// 	} else {
+	// 		uncachedUserModels = append(uncachedUserModels, userModel)
+	// 	}
+	// }
+	// UserByIDCacheMutex.RUnlock()
 
-	// themeを取得
-	themeModels := make([]ThemeModel, 0, len(userModels))
-	query, args, err := sqlx.In("SELECT * FROM themes WHERE user_id IN (?)", userIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	if err := tx.SelectContext(ctx, &themeModels, query, args...); err != nil {
-		return nil, err
-	}
+	// if len(uncachedUserModels) == 0 {
+	// 	return cachedUsers, nil
+	// }
 
-	// キャッシュされていないuser_idのリストを作成
-	uncachedUserIDs := make([]int64, 0, len(userModels))
-	iconHashStringMap := make(map[int64]string, len(userModels))
+	// // user_idのリストを作成
+	// userIDs := make([]int64, len(uncachedUserModels))
+	// for i, userModel := range uncachedUserModels {
+	// 	userIDs[i] = userModel.ID
+	// }
 
-	IconHashByUserIDCacheMutex.RLock()
-	for _, userModel := range userModels {
-		hash, ok := IconHashByUserIDCache[userModel.ID]
-		if !ok {
-			uncachedUserIDs = append(uncachedUserIDs, userModel.ID)
-		} else {
-			iconHashStringMap[userModel.ID] = hash
-		}
-	}
-	IconHashByUserIDCacheMutex.RUnlock()
+	// // themeを取得
+	// themeModels := make([]ThemeModel, 0, len(uncachedUserModels))
+	// query, args, err := sqlx.In("SELECT * FROM themes WHERE user_id IN (?)", userIDs)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// query = tx.Rebind(query)
+	// if err := tx.SelectContext(ctx, &themeModels, query, args...); err != nil {
+	// 	return nil, err
+	// }
 
-	// キャッシュされていないアイコンを取得
-	if len(uncachedUserIDs) > 0 {
-		icons := make([]struct {
-			UserID int64  `db:"user_id"`
-			Image  []byte `db:"image"`
-		}, 0, len(uncachedUserIDs))
-		query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", uncachedUserIDs)
-		if err != nil {
-			return nil, err
-		}
-		query = tx.Rebind(query)
-		if err := tx.SelectContext(ctx, &icons, query, args...); err != nil {
-			return nil, err
-		}
+	// // キャッシュされていないuser_idのリストを作成
+	// uncachedUserIDs := make([]int64, 0, len(uncachedUserModels))
+	// iconHashStringMap := make(map[int64]string, len(uncachedUserModels))
 
-		IconHashByUserIDCacheMutex.Lock()
-		for _, icon := range icons {
-			hash := fmt.Sprintf("%x", sha256.Sum256(icon.Image))
-			iconHashStringMap[icon.UserID] = hash
-			IconHashByUserIDCache[icon.UserID] = hash
-		}
-		IconHashByUserIDCacheMutex.Unlock()
-	}
+	// IconHashByUserIDCacheMutex.RLock()
+	// for _, userModel := range uncachedUserModels {
+	// 	hash, ok := IconHashByUserIDCache[userModel.ID]
+	// 	if !ok {
+	// 		uncachedUserIDs = append(uncachedUserIDs, userModel.ID)
+	// 	} else {
+	// 		iconHashStringMap[userModel.ID] = hash
+	// 	}
+	// }
+	// IconHashByUserIDCacheMutex.RUnlock()
+
+	// // キャッシュされていないアイコンを取得
+	// if len(uncachedUserIDs) > 0 {
+	// 	icons := make([]struct {
+	// 		UserID int64  `db:"user_id"`
+	// 		Image  []byte `db:"image"`
+	// 	}, 0, len(uncachedUserIDs))
+	// 	query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", uncachedUserIDs)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	query = tx.Rebind(query)
+	// 	if err := tx.SelectContext(ctx, &icons, query, args...); err != nil {
+	// 		return nil, err
+	// 	}
+
+	// 	IconHashByUserIDCacheMutex.Lock()
+	// 	for _, icon := range icons {
+	// 		hash := fmt.Sprintf("%x", sha256.Sum256(icon.Image))
+	// 		iconHashStringMap[icon.UserID] = hash
+	// 		IconHashByUserIDCache[icon.UserID] = hash
+	// 	}
+	// 	IconHashByUserIDCacheMutex.Unlock()
+	// }
+
+	// users := []User{}
+	// for i, userModel := range uncachedUserModels {
+	// 	iconHash, ok := iconHashStringMap[userModel.ID]
+	// 	if !ok {
+	// 		icon, err := os.ReadFile(fallbackImage)
+	// 		if err != nil {
+	// 			return nil, err
+	// 		}
+	// 		iconHash = fmt.Sprintf("%x", sha256.Sum256(icon))
+	// 	}
+
+	// 	user := User{
+	// 		ID:          userModel.ID,
+	// 		Name:        userModel.Name,
+	// 		DisplayName: userModel.DisplayName,
+	// 		Description: userModel.Description,
+	// 		Theme: Theme{
+	// 			ID:       themeModels[i].ID,
+	// 			DarkMode: themeModels[i].DarkMode,
+	// 		},
+	// 		IconHash: iconHash,
+	// 	}
+	// 	users = append(users, user)
+	// }
+
+	// UserByIDCacheMutex.Lock()
+	// for i, user := range users {
+	// 	UserByIDCache[userModels[i].ID] = user
+	// }
+	// UserByIDCacheMutex.Unlock()
+
+	// users = append(cachedUsers, users...)
+
+	// return users, nil
 
 	users := make([]User, len(userModels))
 	for i, userModel := range userModels {
-		iconHash, ok := iconHashStringMap[userModel.ID]
-		if !ok {
-			icon, err := os.ReadFile(fallbackImage)
-			if err != nil {
-				return nil, err
-			}
-			iconHash = fmt.Sprintf("%x", sha256.Sum256(icon))
-		}
-
-		user := User{
-			ID:          userModel.ID,
-			Name:        userModel.Name,
-			DisplayName: userModel.DisplayName,
-			Description: userModel.Description,
-			Theme: Theme{
-				ID:       themeModels[i].ID,
-				DarkMode: themeModels[i].DarkMode,
-			},
-			IconHash: iconHash,
+		user, err := fillUserResponse(ctx, tx, *userModel)
+		if err != nil {
+			return nil, err
 		}
 		users[i] = user
 	}
