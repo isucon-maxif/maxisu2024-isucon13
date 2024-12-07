@@ -160,26 +160,37 @@ func getUserStatisticsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
 
+	var livecomments []struct {
+		Tip int64 `db:"tip"`
+	}
+	query = `SELECT IFNULL(SUM(tip), 0) AS tip FROM livecomments WHERE livestream_id IN (?)`
+	var livestreamIDs []int64
 	for _, livestream := range livestreams {
-		var livecomments []*LivecommentModel
-		if err := tx.SelectContext(ctx, &livecomments, "SELECT * FROM livecomments WHERE livestream_id = ?", livestream.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
-		}
+		livestreamIDs = append(livestreamIDs, livestream.ID)
+	}
+	query, args, err = sqlx.In(query, livestreamIDs)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to build query: "+err.Error())
+	}
 
-		for _, livecomment := range livecomments {
-			totalTip += livecomment.Tip
-			totalLivecomments++
-		}
+	query = tx.Rebind(query)
+	if err := tx.SelectContext(ctx, &livecomments, query, args...); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
+	}
+
+	for _, livecomment := range livecomments {
+		totalTip += livecomment.Tip
+		totalLivecomments++
 	}
 
 	// 合計視聴者数
 	var viewersCount int64
-	for _, livestream := range livestreams {
-		var cnt int64
-		if err := tx.GetContext(ctx, &cnt, "SELECT COUNT(*) FROM livestream_viewers_history WHERE livestream_id = ?", livestream.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestream_view_history: "+err.Error())
-		}
-		viewersCount += cnt
+	query = `SELECT COUNT(*) FROM livestreams l
+	INNER JOIN livestream_viewers_history h ON h.livestream_id = l.id
+	WHERE l.user_id = ?
+	`
+	if err := tx.GetContext(ctx, &viewersCount, query, user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to count livestream viewers: "+err.Error())
 	}
 
 	// お気に入り絵文字

@@ -528,3 +528,71 @@ func fillLivecommentReportResponse(ctx context.Context, tx *sqlx.Tx, reportModel
 	}
 	return report, nil
 }
+
+func fillLivecommentReportResponseBulk(ctx context.Context, tx *sqlx.Tx, reportModels []*LivecommentReportModel) ([]LivecommentReport, error) {
+	if len(reportModels) == 0 {
+		return []LivecommentReport{}, nil
+	}
+
+	reporterIDs := make([]int64, len(reportModels))
+	livecommentIDs := make([]int64, len(reportModels))
+	for i, reportModel := range reportModels {
+		reporterIDs[i] = reportModel.UserID
+		livecommentIDs[i] = reportModel.LivecommentID
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", reporterIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	query = tx.Rebind(query)
+	reporterModels := []*UserModel{}
+	if err := tx.SelectContext(ctx, &reporterModels, query, args...); err != nil {
+		return nil, err
+	}
+
+	reporters, err := fillUserResponseBulk(ctx, tx, reporterModels)
+	if err != nil {
+		return nil, err
+	}
+
+	reporterMap := make(map[int64]User)
+	for _, reporter := range reporters {
+		reporterMap[reporter.ID] = reporter
+	}
+
+	query, args, err = sqlx.In("SELECT * FROM livecomments WHERE id IN (?)", livecommentIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	query = tx.Rebind(query)
+	livecommentModels := []*LivecommentModel{}
+	if err := tx.SelectContext(ctx, &livecommentModels, query, args...); err != nil {
+		return nil, err
+	}
+
+	livecomments, err := fillLivecommentResponseBulk(ctx, tx, livecommentModels)
+	if err != nil {
+		return nil, err
+	}
+
+	livecommentMap := make(map[int64]Livecomment)
+	for _, livecomment := range livecomments {
+		livecommentMap[livecomment.ID] = livecomment
+	}
+
+	reports := make([]LivecommentReport, len(reportModels))
+	for i, reportModel := range reportModels {
+		report := LivecommentReport{
+			ID:          reportModel.ID,
+			Reporter:    reporterMap[reportModel.UserID],
+			Livecomment: livecommentMap[reportModel.LivecommentID],
+			CreatedAt:   reportModel.CreatedAt,
+		}
+		reports[i] = report
+	}
+
+	return reports, nil
+}
