@@ -93,9 +93,10 @@ func getIconHandler(c echo.Context) error {
 	ifNoneMatch := c.Request().Header.Get("If-None-Match")
 
 	if ifNoneMatch != "" {
+		trimmedIfNoneMatch := ifNoneMatch[1 : len(ifNoneMatch)-1]
 		IconHashCacheMutex.RLock()
-		if hash, ok := IconHashCache[username]; ok && hash == ifNoneMatch {
-			IconHashCacheMutex.Unlock()
+		if hash, ok := IconHashCache[username]; ok && hash == trimmedIfNoneMatch {
+			IconHashCacheMutex.RUnlock()
 			return c.NoContent(http.StatusNotModified)
 		}
 		IconHashCacheMutex.RUnlock()
