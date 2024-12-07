@@ -272,7 +272,7 @@ func registerHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert user theme: "+err.Error())
 	}
 
-	if out, err := exec.Command("pdnsutil", "add-record", "u.isucon.local", req.Name, "A", "0", powerDNSSubdomainAddress).CombinedOutput(); err != nil {
+	if out, err := exec.Command("pdnsutil", "add-record", "u.isucon.local", req.Name, "A", "3600", powerDNSSubdomainAddress).CombinedOutput(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, string(out)+": "+err.Error())
 	}
 
@@ -473,7 +473,7 @@ func fillUserResponseBulk(ctx context.Context, tx *sqlx.Tx, userModels []*UserMo
 	// iconを取得
 	icons := make([]struct {
 		UserID int64  `db:"user_id"`
-		Image []byte `db:"image"`
+		Image  []byte `db:"image"`
 	}, 0, len(userModels))
 	query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", userIDs)
 	if err != nil {
