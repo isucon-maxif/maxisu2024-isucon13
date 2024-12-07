@@ -30,11 +30,13 @@ const (
 )
 
 var (
-	powerDNSSubdomainAddress string
-	dbConn                   *sqlx.DB
-	secret                   = []byte("isucon13_session_cookiestore_defaultsecret")
-	IconHashCache            = make(map[string]string)
-	IconHashCacheMutex       = sync.RWMutex{}
+	powerDNSSubdomainAddress     string
+	dbConn                       *sqlx.DB
+	secret                       = []byte("isucon13_session_cookiestore_defaultsecret")
+	IconHashByUsernameCache      = make(map[string]string)
+	IconHashByUsernameCacheMutex = sync.RWMutex{}
+	IconHashByUserIDCache        = make(map[int64]string)
+	IconHashByUserIDCacheMutex   = sync.RWMutex{}
 )
 
 func init() {
@@ -112,9 +114,12 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 
 func initializeHandler(c echo.Context) error {
 	// キャッシュをクリア
-	IconHashCacheMutex.Lock()
-	IconHashCache = make(map[string]string)
-	IconHashCacheMutex.Unlock()
+	IconHashByUsernameCacheMutex.Lock()
+	IconHashByUsernameCache = make(map[string]string)
+	IconHashByUsernameCacheMutex.Unlock()
+	IconHashByUserIDCacheMutex.Lock()
+	IconHashByUserIDCache = make(map[int64]string)
+	IconHashByUserIDCacheMutex.Unlock()
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))

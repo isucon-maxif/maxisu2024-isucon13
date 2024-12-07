@@ -94,12 +94,12 @@ func getIconHandler(c echo.Context) error {
 
 	if ifNoneMatch != "" {
 		trimmedIfNoneMatch := ifNoneMatch[1 : len(ifNoneMatch)-1]
-		IconHashCacheMutex.RLock()
-		if hash, ok := IconHashCache[username]; ok && hash == trimmedIfNoneMatch {
-			IconHashCacheMutex.RUnlock()
+		IconHashByUsernameCacheMutex.RLock()
+		if hash, ok := IconHashByUsernameCache[username]; ok && hash == trimmedIfNoneMatch {
+			IconHashByUsernameCacheMutex.RUnlock()
 			return c.NoContent(http.StatusNotModified)
 		}
-		IconHashCacheMutex.RUnlock()
+		IconHashByUsernameCacheMutex.RUnlock()
 	}
 
 	tx, err := dbConn.BeginTxx(ctx, nil)
@@ -125,9 +125,13 @@ func getIconHandler(c echo.Context) error {
 		}
 	}
 
-	IconHashCacheMutex.Lock()
-	IconHashCache[username] = fmt.Sprintf("%x", sha256.Sum256(image))
-	IconHashCacheMutex.Unlock()
+	hash := fmt.Sprintf("%x", sha256.Sum256(image))
+	IconHashByUsernameCacheMutex.Lock()
+	IconHashByUsernameCache[username] = hash
+	IconHashByUsernameCacheMutex.Unlock()
+	IconHashByUserIDCacheMutex.Lock()
+	IconHashByUserIDCache[user.ID] = hash
+	IconHashByUserIDCacheMutex.Unlock()
 
 	return c.Blob(http.StatusOK, "image/jpeg", image)
 }
@@ -420,17 +424,31 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		return User{}, err
 	}
 
+	IconHashByUserIDCacheMutex.RLock()
+	hashStr, ok := IconHashByUserIDCache[userModel.ID]
+	IconHashByUserIDCacheMutex.RUnlock()
+
 	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userModel.ID); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return User{}, err
+	isFallbackImage := false
+	if !ok {
+		if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userModel.ID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return User{}, err
+			}
+			image, err = os.ReadFile(fallbackImage)
+			if err != nil {
+				return User{}, err
+			}
+			isFallbackImage = true
 		}
-		image, err = os.ReadFile(fallbackImage)
-		if err != nil {
-			return User{}, err
-		}
+		hashStr = fmt.Sprintf("%x", sha256.Sum256(image))
 	}
-	iconHash := sha256.Sum256(image)
+
+	if !isFallbackImage {
+		IconHashByUserIDCacheMutex.Lock()
+		IconHashByUserIDCache[userModel.ID] = hashStr
+		IconHashByUserIDCacheMutex.Unlock()
+	}
 
 	user := User{
 		ID:          userModel.ID,
@@ -441,7 +459,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 			ID:       themeModel.ID,
 			DarkMode: themeModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: hashStr,
 	}
 
 	return user, nil
@@ -470,35 +488,55 @@ func fillUserResponseBulk(ctx context.Context, tx *sqlx.Tx, userModels []*UserMo
 		return nil, err
 	}
 
-	// iconを取得
-	icons := make([]struct {
-		UserID int64  `db:"user_id"`
-		Image  []byte `db:"image"`
-	}, 0, len(userModels))
-	query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", userIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	if err := tx.SelectContext(ctx, &icons, query, args...); err != nil {
-		return nil, err
-	}
+	// キャッシュされていないuser_idのリストを作成
+	uncachedUserIDs := make([]int64, 0, len(userModels))
+	iconHashStringMap := make(map[int64]string, len(userModels))
 
-	iconMap := make(map[int64][]byte, len(icons))
-	for _, icon := range icons {
-		iconMap[icon.UserID] = icon.Image
+	IconHashByUserIDCacheMutex.RLock()
+	for _, userModel := range userModels {
+		hash, ok := IconHashByUserIDCache[userModel.ID]
+		if !ok {
+			uncachedUserIDs = append(uncachedUserIDs, userModel.ID)
+		} else {
+			iconHashStringMap[userModel.ID] = hash
+		}
+	}
+	IconHashByUserIDCacheMutex.RUnlock()
+
+	// キャッシュされていないアイコンを取得
+	if len(uncachedUserIDs) > 0 {
+		icons := make([]struct {
+			UserID int64  `db:"user_id"`
+			Image  []byte `db:"image"`
+		}, 0, len(uncachedUserIDs))
+		query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", uncachedUserIDs)
+		if err != nil {
+			return nil, err
+		}
+		query = tx.Rebind(query)
+		if err := tx.SelectContext(ctx, &icons, query, args...); err != nil {
+			return nil, err
+		}
+
+		IconHashByUserIDCacheMutex.Lock()
+		for _, icon := range icons {
+			hash := fmt.Sprintf("%x", sha256.Sum256(icon.Image))
+			iconHashStringMap[icon.UserID] = hash
+			IconHashByUserIDCache[icon.UserID] = hash
+		}
+		IconHashByUserIDCacheMutex.Unlock()
 	}
 
 	users := make([]User, len(userModels))
 	for i, userModel := range userModels {
-		icon, ok := iconMap[userModel.ID]
+		iconHash, ok := iconHashStringMap[userModel.ID]
 		if !ok {
-			icon, err = os.ReadFile(fallbackImage)
+			icon, err := os.ReadFile(fallbackImage)
 			if err != nil {
 				return nil, err
 			}
+			iconHash = fmt.Sprintf("%x", sha256.Sum256(icon))
 		}
-		iconHash := sha256.Sum256(icon)
 
 		user := User{
 			ID:          userModel.ID,
@@ -509,7 +547,7 @@ func fillUserResponseBulk(ctx context.Context, tx *sqlx.Tx, userModels []*UserMo
 				ID:       themeModels[i].ID,
 				DarkMode: themeModels[i].DarkMode,
 			},
-			IconHash: fmt.Sprintf("%x", iconHash),
+			IconHash: iconHash,
 		}
 		users[i] = user
 	}
