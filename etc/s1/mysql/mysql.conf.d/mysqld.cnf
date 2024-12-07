@@ -56,9 +56,6 @@ myisam-recover-options  = BACKUP
 # Be aware that this log type is a performance killer.
 # general_log_file        = /var/log/mysql/query.log
 # general_log             = 1
-slow_query_log		= 1
-slow_query_log_file	= /var/log/mysql/mysql-slow.log
-long_query_time = 0
 #
 # Error log - should be very few entries.
 #
@@ -77,5 +74,6 @@ log_error = /var/log/mysql/error.log
 # log_bin			= /var/log/mysql/mysql-bin.log
 # binlog_expire_logs_seconds	= 2592000
 max_binlog_size   = 100M
+disable-log-bin
 # binlog_do_db		= include_database_name
 # binlog_ignore_db	= include_database_name
