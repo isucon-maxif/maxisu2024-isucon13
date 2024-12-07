@@ -38,7 +38,22 @@ var (
 	IconHashByUserIDCacheMutex   = sync.RWMutex{}
 	UserByIDCache                = make(map[int64]User)
 	UserByIDCacheMutex           = sync.RWMutex{}
+	LivestreamByIDCache          = make(map[int64]Livestream)
+	LivestreamByIDCacheMutex     = sync.RWMutex{}
 )
+
+func deleteLivestreamByIDCacheByOwnerID(ownerID int64) error {
+	LivestreamByIDCacheMutex.Lock()
+	defer LivestreamByIDCacheMutex.Unlock()
+
+	for id, ls := range LivestreamByIDCache {
+		if ls.Owner.ID == ownerID {
+			delete(LivestreamByIDCache, id)
+		}
+	}
+
+	return nil
+}
 
 func init() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
@@ -124,6 +139,9 @@ func initializeHandler(c echo.Context) error {
 	UserByIDCacheMutex.Lock()
 	UserByIDCache = make(map[int64]User)
 	UserByIDCacheMutex.Unlock()
+	LivestreamByIDCacheMutex.Lock()
+	LivestreamByIDCache = make(map[int64]Livestream)
+	LivestreamByIDCacheMutex.Unlock()
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))

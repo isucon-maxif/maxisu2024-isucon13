@@ -181,6 +181,7 @@ func postIconHandler(c echo.Context) error {
 	UserByIDCacheMutex.Lock()
 	delete(UserByIDCache, userID)
 	UserByIDCacheMutex.Unlock()
+	deleteLivestreamByIDCacheByOwnerID(userID)
 
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
@@ -316,6 +317,7 @@ func registerHandler(c echo.Context) error {
 	UserByIDCacheMutex.Lock()
 	delete(UserByIDCache, userID)
 	UserByIDCacheMutex.Unlock()
+	deleteLivestreamByIDCacheByOwnerID(userID)
 
 	return c.JSON(http.StatusCreated, user)
 }
