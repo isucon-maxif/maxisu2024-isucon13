@@ -61,19 +61,14 @@ func getReactionsHandler(c echo.Context) error {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
-	reactionModels := []ReactionModel{}
+	reactionModels := []*ReactionModel{}
 	if err := tx.SelectContext(ctx, &reactionModels, query, livestreamID); err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "failed to get reactions")
 	}
 
-	reactions := make([]Reaction, len(reactionModels))
-	for i := range reactionModels {
-		reaction, err := fillReactionResponse(ctx, tx, reactionModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill reaction: "+err.Error())
-		}
-
-		reactions[i] = reaction
+	reactions, err := fillReactionResponseBulk(ctx, tx, reactionModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill reaction: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -169,4 +164,71 @@ func fillReactionResponse(ctx context.Context, tx *sqlx.Tx, reactionModel Reacti
 	}
 
 	return reaction, nil
+}
+
+// N+1問題を解消するためにbulkで取得する
+func fillReactionResponseBulk(ctx context.Context, tx *sqlx.Tx, reactionModels []*ReactionModel) ([]Reaction, error) {
+	if len(reactionModels) == 0 {
+		return []Reaction{}, nil
+	}
+
+	userIDs := make([]int64, len(reactionModels))
+	livestreamIDs := make([]int64, len(reactionModels))
+	for i, reactionModel := range reactionModels {
+		userIDs[i] = reactionModel.UserID
+		livestreamIDs[i] = reactionModel.LivestreamID
+	}
+
+	userModels := []*UserModel{}
+	query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	if err := tx.SelectContext(ctx, &userModels, query, args...); err != nil {
+		return nil, err
+	}
+
+	users, err := fillUserResponseBulk(ctx, tx, userModels)
+	if err != nil {
+		return nil, err
+	}
+
+	userIDToUser := map[int64]User{}
+	for _, user := range users {
+		userIDToUser[user.ID] = user
+	}
+
+	livestreamModels := []*LivestreamModel{}
+	query, args, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	if err := tx.SelectContext(ctx, &livestreamModels, query, args...); err != nil {
+		return nil, err
+	}
+
+	livestreams, err := fillLivestreamResponseBulk(ctx, tx, livestreamModels)
+	if err != nil {
+		return nil, err
+	}
+
+	livestreamIDToLivestream := map[int64]Livestream{}
+	for _, livestream := range livestreams {
+		livestreamIDToLivestream[livestream.ID] = livestream
+	}
+
+	reactions := make([]Reaction, len(reactionModels))
+	for i, reactionModel := range reactionModels {
+		reactions[i] = Reaction{
+			ID:         reactionModel.ID,
+			EmojiName:  reactionModel.EmojiName,
+			User:       userIDToUser[reactionModel.UserID],
+			Livestream: livestreamIDToLivestream[reactionModel.LivestreamID],
+			CreatedAt:  reactionModel.CreatedAt,
+		}
+	}
+
+	return reactions, nil
 }
