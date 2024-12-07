@@ -36,6 +36,8 @@ var (
 	IconHashByUsernameCacheMutex = sync.RWMutex{}
 	IconHashByUserIDCache        = make(map[int64]string)
 	IconHashByUserIDCacheMutex   = sync.RWMutex{}
+	UserByIDCache                = make(map[int64]User)
+	UserByIDCacheMutex           = sync.RWMutex{}
 )
 
 func init() {
@@ -119,6 +121,9 @@ func initializeHandler(c echo.Context) error {
 	IconHashByUserIDCacheMutex.Lock()
 	IconHashByUserIDCache = make(map[int64]string)
 	IconHashByUserIDCacheMutex.Unlock()
+	UserByIDCacheMutex.Lock()
+	UserByIDCache = make(map[int64]User)
+	UserByIDCacheMutex.Unlock()
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))

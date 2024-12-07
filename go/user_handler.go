@@ -178,6 +178,10 @@ func postIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
 
+	UserByIDCacheMutex.Lock()
+	delete(UserByIDCache, userID)
+	UserByIDCacheMutex.Unlock()
+
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
 	})
@@ -309,6 +313,10 @@ func registerHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
 
+	UserByIDCacheMutex.Lock()
+	delete(UserByIDCache, userID)
+	UserByIDCacheMutex.Unlock()
+
 	return c.JSON(http.StatusCreated, user)
 }
 
@@ -439,6 +447,13 @@ func verifyUserSession(c echo.Context) error {
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
+	UserByIDCacheMutex.RLock()
+	if user, ok := UserByIDCache[userModel.ID]; ok {
+		UserByIDCacheMutex.RUnlock()
+		return user, nil
+	}
+	UserByIDCacheMutex.RUnlock()
+
 	themeModel := ThemeModel{}
 	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
 		return User{}, err
@@ -481,6 +496,10 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		},
 		IconHash: hashStr,
 	}
+
+	UserByIDCacheMutex.Lock()
+	UserByIDCache[userModel.ID] = user
+	UserByIDCacheMutex.Unlock()
 
 	return user, nil
 }
