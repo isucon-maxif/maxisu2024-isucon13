@@ -90,6 +90,17 @@ func getIconHandler(c echo.Context) error {
 
 	username := c.Param("username")
 
+	ifNoneMatch := c.Request().Header.Get("If-None-Match")
+
+	if ifNoneMatch != "" {
+		IconHashCacheMutex.RLock()
+		if hash, ok := IconHashCache[username]; ok && hash == ifNoneMatch {
+			IconHashCacheMutex.Unlock()
+			return c.NoContent(http.StatusNotModified)
+		}
+		IconHashCacheMutex.RUnlock()
+	}
+
 	tx, err := dbConn.BeginTxx(ctx, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to begin transaction: "+err.Error())
@@ -112,6 +123,10 @@ func getIconHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user icon: "+err.Error())
 		}
 	}
+
+	IconHashCacheMutex.Lock()
+	IconHashCache[username] = fmt.Sprintf("%x", sha256.Sum256(image))
+	IconHashCacheMutex.Unlock()
 
 	return c.Blob(http.StatusOK, "image/jpeg", image)
 }
