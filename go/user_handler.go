@@ -445,3 +445,73 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 
 	return user, nil
 }
+
+// N+1問題を解消するためにbulkで取得する
+func fillUserResponseBulk(ctx context.Context, tx *sqlx.Tx, userModels []*UserModel) ([]User, error) {
+	if len(userModels) == 0 {
+		return []User{}, nil
+	}
+
+	// user_idのリストを作成
+	userIDs := make([]int64, len(userModels))
+	for i, userModel := range userModels {
+		userIDs[i] = userModel.ID
+	}
+
+	// themeを取得
+	themeModels := make([]ThemeModel, 0, len(userModels))
+	query, args, err := sqlx.In("SELECT * FROM themes WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	if err := tx.SelectContext(ctx, &themeModels, query, args...); err != nil {
+		return nil, err
+	}
+
+	// iconを取得
+	icons := make([]struct {
+		UserID int64  `db:"user_id"`
+		Image []byte `db:"image"`
+	}, 0, len(userModels))
+	query, args, err = sqlx.In("SELECT user_id, image FROM icons WHERE user_id IN (?)", userIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	if err := tx.SelectContext(ctx, &icons, query, args...); err != nil {
+		return nil, err
+	}
+
+	iconMap := make(map[int64][]byte, len(icons))
+	for _, icon := range icons {
+		iconMap[icon.UserID] = icon.Image
+	}
+
+	users := make([]User, len(userModels))
+	for i, userModel := range userModels {
+		icon, ok := iconMap[userModel.ID]
+		if !ok {
+			icon, err = os.ReadFile(fallbackImage)
+			if err != nil {
+				return nil, err
+			}
+		}
+		iconHash := sha256.Sum256(icon)
+
+		user := User{
+			ID:          userModel.ID,
+			Name:        userModel.Name,
+			DisplayName: userModel.DisplayName,
+			Description: userModel.Description,
+			Theme: Theme{
+				ID:       themeModels[i].ID,
+				DarkMode: themeModels[i].DarkMode,
+			},
+			IconHash: fmt.Sprintf("%x", iconHash),
+		}
+		users[i] = user
+	}
+
+	return users, nil
+}

@@ -466,17 +466,19 @@ func fillLivecommentResponseBulk(ctx context.Context, tx *sqlx.Tx, livecommentMo
 		return nil, err
 	}
 	query = tx.Rebind(query)
-	commentOwnerModels := []UserModel{}
+	commentOwnerModels := []*UserModel{}
 	if err := tx.SelectContext(ctx, &commentOwnerModels, query, args...); err != nil {
 		return nil, err
 	}
-	commentOwners := make(map[int64]User)
-	for _, commentOwnerModel := range commentOwnerModels {
-		commentOwner, err := fillUserResponse(ctx, tx, commentOwnerModel)
-		if err != nil {
-			return nil, err
-		}
-		commentOwners[commentOwnerModel.ID] = commentOwner
+
+	commentOwners, err := fillUserResponseBulk(ctx, tx, commentOwnerModels)
+	if err != nil {
+		return nil, err
+	}
+
+	commentOwnerMap := make(map[int64]User)
+	for _, commentOwner := range commentOwners {
+		commentOwnerMap[commentOwner.ID] = commentOwner
 	}
 
 	query, args, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
@@ -501,7 +503,7 @@ func fillLivecommentResponseBulk(ctx context.Context, tx *sqlx.Tx, livecommentMo
 	for i, livecommentModel := range livecommentModels {
 		livecomment := Livecomment{
 			ID:         livecommentModel.ID,
-			User:       commentOwners[livecommentModel.UserID],
+			User:       commentOwnerMap[livecommentModel.UserID],
 			Livestream: livecommentMap[livecommentModel.LivestreamID],
 			Comment:    livecommentModel.Comment,
 			Tip:        livecommentModel.Tip,

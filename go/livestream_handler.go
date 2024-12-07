@@ -538,9 +538,14 @@ func fillLivestreamResponseBulk(ctx context.Context, tx *sqlx.Tx, livestreamMode
 		return []Livestream{}, err
 	}
 
-	userModelsMap := make(map[int64]*UserModel)
-	for i := range userModels {
-		userModelsMap[userModels[i].ID] = userModels[i]
+	userMap := make(map[int64]User)
+
+	users, err := fillUserResponseBulk(ctx, tx, userModels)
+	if err != nil {
+		return []Livestream{}, err
+	}
+	for _, user := range users {
+		userMap[user.ID] = user
 	}
 
 	var allLivestreamTagModels []*LivestreamTagModel
@@ -590,14 +595,7 @@ func fillLivestreamResponseBulk(ctx context.Context, tx *sqlx.Tx, livestreamMode
 
 	for i := range livestreamModels {
 		livestreamModel := livestreamModels[i]
-		ownerModel, ok := userModelsMap[livestreamModel.UserID]
-		if !ok {
-			return []Livestream{}, fmt.Errorf("user not found: %d", livestreamModel.UserID)
-		}
-		owner, err := fillUserResponse(ctx, tx, *ownerModel)
-		if err != nil {
-			return []Livestream{}, err
-		}
+		owner := userMap[livestreamModel.UserID]
 		livestreamTagModels := livestreamTagModelsMap[livestreamModel.ID]
 
 		tags := make([]Tag, 0, len(livestreamTagModels))
