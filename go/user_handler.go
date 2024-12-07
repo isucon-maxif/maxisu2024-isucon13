@@ -278,7 +278,7 @@ func registerHandler(c echo.Context) error {
 
 	// post request to powerdns
 	{
-		endpoint := "http://192.168.0.4:8081/api/v1/servers/localhost/zones/u.isucon.dev."
+		endpoint := "http://192.168.0.4:8081/api/v1/servers/localhost/zones/u.isucon.local."
 		body := fmt.Sprintf(`{"rrsets": [{"name": "%s.u.isucon.dev.", "type": "A", "ttl": 3600, "changetype": "REPLACE", "records": [{"content": "%s", "disabled": false}]}]}`, req.Name, powerDNSSubdomainAddress)
 		req, err := http.NewRequest(http.MethodPatch, endpoint, strings.NewReader(body))
 		if err != nil {
