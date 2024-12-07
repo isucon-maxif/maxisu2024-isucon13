@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -147,13 +148,14 @@ func reserveLivestreamHandler(c echo.Context) error {
 	}
 	livestreamModel.ID = livestreamID
 
-	// タグ追加
-	for _, tagID := range req.Tags {
-		if _, err := tx.NamedExecContext(ctx, "INSERT INTO livestream_tags (livestream_id, tag_id) VALUES (:livestream_id, :tag_id)", &LivestreamTagModel{
-			LivestreamID: livestreamID,
-			TagID:        tagID,
-		}); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert livestream tag: "+err.Error())
+	if len(req.Tags) > 0 {
+		values := make([]string, 0, len(req.Tags))
+		for _, tagID := range req.Tags {
+			values = append(values, fmt.Sprintf("(%d, %d)", livestreamID, tagID))
+		}
+		query := fmt.Sprintf("INSERT INTO livestream_tags (livestream_id, tag_id) VALUES %s", strings.Join(values, ","))
+		if _, err := tx.ExecContext(ctx, query); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert livestream tags: "+err.Error())
 		}
 	}
 
@@ -196,13 +198,19 @@ func searchLivestreamsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get keyTaggedLivestreams: "+err.Error())
 		}
 
-		for _, keyTaggedLivestream := range keyTaggedLivestreams {
-			ls := LivestreamModel{}
-			if err := tx.GetContext(ctx, &ls, "SELECT * FROM livestreams WHERE id = ?", keyTaggedLivestream.LivestreamID); err != nil {
+		livestreamIDs := make([]int64, len(keyTaggedLivestreams))
+		for i := range keyTaggedLivestreams {
+			livestreamIDs[i] = keyTaggedLivestreams[i].LivestreamID
+		}
+
+		if len(livestreamIDs) > 0 {
+			query, params, err := sqlx.In("SELECT * FROM livestreams WHERE id IN (?) ORDER BY id DESC", livestreamIDs)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "failed to construct IN query: "+err.Error())
+			}
+			if err := tx.SelectContext(ctx, &livestreamModels, query, params...); err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 			}
-
-			livestreamModels = append(livestreamModels, &ls)
 		}
 	} else {
 		// 検索条件なし
@@ -456,13 +464,9 @@ func getLivecommentReportsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomment reports: "+err.Error())
 	}
 
-	reports := make([]LivecommentReport, len(reportModels))
-	for i := range reportModels {
-		report, err := fillLivecommentReportResponse(ctx, tx, *reportModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livecomment report: "+err.Error())
-		}
-		reports[i] = report
+	reports, err := fillLivecommentReportResponseBulk(ctx, tx, reportModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livecomment report: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
