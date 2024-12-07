@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 )
 
@@ -93,30 +94,39 @@ func getUserStatisticsHandler(c echo.Context) error {
 	}
 
 	var ranking UserRanking
+	var userIDs []int64
 	for _, user := range users {
-		var reactions int64
-		query := `
-		SELECT COUNT(*) FROM users u
-		INNER JOIN livestreams l ON l.user_id = u.id
-		INNER JOIN reactions r ON r.livestream_id = l.id
-		WHERE u.id = ?`
-		if err := tx.GetContext(ctx, &reactions, query, user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to count reactions: "+err.Error())
-		}
+		userIDs = append(userIDs, user.ID)
+	}
 
-		var tips int64
-		query = `
-		SELECT IFNULL(SUM(l2.tip), 0) FROM users u
-		INNER JOIN livestreams l ON l.user_id = u.id
-		INNER JOIN livecomments l2 ON l2.livestream_id = l.id
-		WHERE u.id = ?`
-		if err := tx.GetContext(ctx, &tips, query, user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to count tips: "+err.Error())
-		}
+	query, args, err := sqlx.In(`
+		SELECT u.id, u.name, COUNT(r.id) AS reactions, IFNULL(SUM(l2.tip), 0) AS tips
+		FROM users u
+		LEFT JOIN livestreams l ON l.user_id = u.id
+		LEFT JOIN reactions r ON r.livestream_id = l.id
+		LEFT JOIN livecomments l2 ON l2.livestream_id = l.id
+		WHERE u.id IN (?)
+		GROUP BY u.id, u.name
+	`, userIDs)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to build query: "+err.Error())
+	}
 
-		score := reactions + tips
+	query = tx.Rebind(query)
+	var results []struct {
+		ID        int64  `db:"id"`
+		Name      string `db:"name"`
+		Reactions int64  `db:"reactions"`
+		Tips      int64  `db:"tips"`
+	}
+	if err := tx.SelectContext(ctx, &results, query, args...); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user stats: "+err.Error())
+	}
+
+	for _, result := range results {
+		score := result.Reactions + result.Tips
 		ranking = append(ranking, UserRankingEntry{
-			Username: user.Name,
+			Username: result.Name,
 			Score:    score,
 		})
 	}
@@ -133,7 +143,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 
 	// リアクション数
 	var totalReactions int64
-	query := `SELECT COUNT(*) FROM users u
+	query = `SELECT COUNT(*) FROM users u
     INNER JOIN livestreams l ON l.user_id = u.id
     INNER JOIN reactions r ON r.livestream_id = l.id
     WHERE u.name = ?
