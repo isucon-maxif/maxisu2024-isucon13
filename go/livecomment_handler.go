@@ -404,6 +404,12 @@ func moderateHandler(c echo.Context) error {
 }
 
 func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel LivecommentModel) (Livecomment, error) {
+	LivecommentByIDCacheMutex.Lock()
+	cached, ok := LivecommentByIDCache[livecommentModel.ID]
+	LivecommentByIDCacheMutex.Unlock()
+	if ok {
+		return cached, nil
+	}
 	commentOwnerModel := UserModel{}
 	if err := tx.GetContext(ctx, &commentOwnerModel, "SELECT * FROM users WHERE id = ?", livecommentModel.UserID); err != nil {
 		return Livecomment{}, err
@@ -431,69 +437,84 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 		CreatedAt:  livecommentModel.CreatedAt,
 	}
 
+	LivecommentByIDCacheMutex.Lock()
+	LivecommentByIDCache[livecommentModel.ID] = livecomment
+	LivecommentByIDCacheMutex.Unlock()
+
 	return livecomment, nil
 }
 
 // N+1問題を解消するためにbulkで取得する
 func fillLivecommentResponseBulk(ctx context.Context, tx *sqlx.Tx, livecommentModels []*LivecommentModel) ([]Livecomment, error) {
-	if len(livecommentModels) == 0 {
-		return []Livecomment{}, nil
-	}
+	// if len(livecommentModels) == 0 {
+	// 	return []Livecomment{}, nil
+	// }
 
-	commentOwnerIDs := make([]int64, len(livecommentModels))
-	livestreamIDs := make([]int64, len(livecommentModels))
-	for i, livecommentModel := range livecommentModels {
-		commentOwnerIDs[i] = livecommentModel.UserID
-		livestreamIDs[i] = livecommentModel.LivestreamID
-	}
+	// commentOwnerIDs := make([]int64, len(livecommentModels))
+	// livestreamIDs := make([]int64, len(livecommentModels))
+	// for i, livecommentModel := range livecommentModels {
+	// 	commentOwnerIDs[i] = livecommentModel.UserID
+	// 	livestreamIDs[i] = livecommentModel.LivestreamID
+	// }
 
-	query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", commentOwnerIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	commentOwnerModels := []*UserModel{}
-	if err := tx.SelectContext(ctx, &commentOwnerModels, query, args...); err != nil {
-		return nil, err
-	}
+	// query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", commentOwnerIDs)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// query = tx.Rebind(query)
+	// commentOwnerModels := []*UserModel{}
+	// if err := tx.SelectContext(ctx, &commentOwnerModels, query, args...); err != nil {
+	// 	return nil, err
+	// }
 
-	commentOwners, err := fillUserResponseBulk(ctx, tx, commentOwnerModels)
-	if err != nil {
-		return nil, err
-	}
+	// commentOwners, err := fillUserResponseBulk(ctx, tx, commentOwnerModels)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	commentOwnerMap := make(map[int64]User)
-	for _, commentOwner := range commentOwners {
-		commentOwnerMap[commentOwner.ID] = commentOwner
-	}
+	// commentOwnerMap := make(map[int64]User)
+	// for _, commentOwner := range commentOwners {
+	// 	commentOwnerMap[commentOwner.ID] = commentOwner
+	// }
 
-	query, args, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	livestreamModels := []*LivestreamModel{}
-	if err := tx.SelectContext(ctx, &livestreamModels, query, args...); err != nil {
-		return nil, err
-	}
-	livestreams, err := fillLivestreamResponseBulk(ctx, tx, livestreamModels)
-	if err != nil {
-		return nil, err
-	}
-	livecommentMap := make(map[int64]Livestream)
-	for _, livestream := range livestreams {
-		livecommentMap[livestream.ID] = livestream
-	}
+	// query, args, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// query = tx.Rebind(query)
+	// livestreamModels := []*LivestreamModel{}
+	// if err := tx.SelectContext(ctx, &livestreamModels, query, args...); err != nil {
+	// 	return nil, err
+	// }
+	// livestreams, err := fillLivestreamResponseBulk(ctx, tx, livestreamModels)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// livecommentMap := make(map[int64]Livestream)
+	// for _, livestream := range livestreams {
+	// 	livecommentMap[livestream.ID] = livestream
+	// }
+
+	// livecomments := make([]Livecomment, len(livecommentModels))
+	// for i, livecommentModel := range livecommentModels {
+	// 	livecomment := Livecomment{
+	// 		ID:         livecommentModel.ID,
+	// 		User:       commentOwnerMap[livecommentModel.UserID],
+	// 		Livestream: livecommentMap[livecommentModel.LivestreamID],
+	// 		Comment:    livecommentModel.Comment,
+	// 		Tip:        livecommentModel.Tip,
+	// 		CreatedAt:  livecommentModel.CreatedAt,
+	// 	}
+	// 	livecomments[i] = livecomment
+	// }
+
+	// return livecomments, nil
 
 	livecomments := make([]Livecomment, len(livecommentModels))
 	for i, livecommentModel := range livecommentModels {
-		livecomment := Livecomment{
-			ID:         livecommentModel.ID,
-			User:       commentOwnerMap[livecommentModel.UserID],
-			Livestream: livecommentMap[livecommentModel.LivestreamID],
-			Comment:    livecommentModel.Comment,
-			Tip:        livecommentModel.Tip,
-			CreatedAt:  livecommentModel.CreatedAt,
+		livecomment, err := fillLivecommentResponse(ctx, tx, *livecommentModel)
+		if err != nil {
+			return nil, err
 		}
 		livecomments[i] = livecomment
 	}

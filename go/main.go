@@ -40,6 +40,8 @@ var (
 	UserByIDCacheMutex           = sync.RWMutex{}
 	LivestreamByIDCache          = make(map[int64]Livestream)
 	LivestreamByIDCacheMutex     = sync.RWMutex{}
+	LivecommentByIDCache         = make(map[int64]Livecomment)
+	LivecommentByIDCacheMutex    = sync.RWMutex{}
 )
 
 func deleteLivestreamByIDCacheByOwnerID(ownerID int64) error {
@@ -49,6 +51,19 @@ func deleteLivestreamByIDCacheByOwnerID(ownerID int64) error {
 	for id, ls := range LivestreamByIDCache {
 		if ls.Owner.ID == ownerID {
 			delete(LivestreamByIDCache, id)
+		}
+	}
+
+	return nil
+}
+
+func deleteLivecommentByIDCacheByOwnerID(ownerID int64) error {
+	LivecommentByIDCacheMutex.Lock()
+	defer LivecommentByIDCacheMutex.Unlock()
+
+	for id, lc := range LivecommentByIDCache {
+		if lc.Livestream.Owner.ID == ownerID {
+			delete(LivecommentByIDCache, id)
 		}
 	}
 
@@ -142,6 +157,9 @@ func initializeHandler(c echo.Context) error {
 	LivestreamByIDCacheMutex.Lock()
 	LivestreamByIDCache = make(map[int64]Livestream)
 	LivestreamByIDCacheMutex.Unlock()
+	LivecommentByIDCacheMutex.Lock()
+	LivecommentByIDCache = make(map[int64]Livecomment)
+	LivecommentByIDCacheMutex.Unlock()
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))
