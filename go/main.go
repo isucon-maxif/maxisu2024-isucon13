@@ -37,6 +37,7 @@ var (
 	IconHashByUsernameCacheMutex = sync.RWMutex{}
 	IconHashByUserIDCache        = make(map[int64]string)
 	IconHashByUserIDCacheMutex   = sync.RWMutex{}
+	TagModelCache                = make(map[int64]TagModel)
 )
 
 func init() {
@@ -120,6 +121,16 @@ func initializeHandler(c echo.Context) error {
 	IconHashByUserIDCacheMutex.Lock()
 	IconHashByUserIDCache = make(map[int64]string)
 	IconHashByUserIDCacheMutex.Unlock()
+	TagModelCache = make(map[int64]TagModel)
+
+	// load tag
+	tags := []TagModel{}
+	if err := dbConn.Select(&tags, "SELECT * FROM tags"); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load tags: "+err.Error())
+	}
+	for _, tag := range tags {
+		TagModelCache[tag.ID] = tag
+	}
 
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))

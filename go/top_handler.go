@@ -31,9 +31,9 @@ func getTagHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var tagModels []*TagModel
-	if err := tx.SelectContext(ctx, &tagModels, "SELECT * FROM tags"); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get tags: "+err.Error())
+	tagModels := []TagModel{}
+	for _, tagModel := range TagModelCache {
+		tagModels = append(tagModels, tagModel)
 	}
 
 	if err := tx.Commit(); err != nil {
