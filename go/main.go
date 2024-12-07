@@ -75,14 +75,13 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 	if v, ok := os.LookupEnv(networkTypeEnvKey); ok {
 		conf.Net = v
 	}
-	// if addr, ok := os.LookupEnv(addrEnvKey); ok {
-	// 	if port, ok2 := os.LookupEnv(portEnvKey); ok2 {
-	// 		conf.Addr = net.JoinHostPort(addr, port)
-	// 	} else {
-	// 		conf.Addr = net.JoinHostPort(addr, "3306")
-	// 	}
-	// }
-	conf.Addr = net.JoinHostPort("192.168.0.5", "3306")
+	if addr, ok := os.LookupEnv(addrEnvKey); ok {
+		if port, ok2 := os.LookupEnv(portEnvKey); ok2 {
+			conf.Addr = net.JoinHostPort(addr, port)
+		} else {
+			conf.Addr = net.JoinHostPort(addr, "3306")
+		}
+	}
 	if v, ok := os.LookupEnv(userEnvKey); ok {
 		conf.User = v
 	}
@@ -104,7 +103,7 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(50)
+	db.SetMaxOpenConns(10)
 
 	if err := db.Ping(); err != nil {
 		return nil, err
