@@ -93,7 +93,7 @@ func getLivecommentsHandler(c echo.Context) error {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
-	livecommentModels := []LivecommentModel{}
+	livecommentModels := []*LivecommentModel{}
 	err = tx.SelectContext(ctx, &livecommentModels, query, livestreamID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return c.JSON(http.StatusOK, []*Livecomment{})
@@ -102,14 +102,9 @@ func getLivecommentsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
 	}
 
-	livecomments := make([]Livecomment, len(livecommentModels))
-	for i := range livecommentModels {
-		livecomment, err := fillLivecommentResponse(ctx, tx, livecommentModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fil livecomments: "+err.Error())
-		}
-
-		livecomments[i] = livecomment
+	livecomments, err := fillLivecommentResponseBulk(ctx, tx, livecommentModels)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livecomments: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -451,6 +446,71 @@ func fillLivecommentResponse(ctx context.Context, tx *sqlx.Tx, livecommentModel 
 	}
 
 	return livecomment, nil
+}
+
+// N+1問題を解消するためにbulkで取得する
+func fillLivecommentResponseBulk(ctx context.Context, tx *sqlx.Tx, livecommentModels []*LivecommentModel) ([]Livecomment, error) {
+	if len(livecommentModels) == 0 {
+		return []Livecomment{}, nil
+	}
+
+	commentOwnerIDs := make([]int64, len(livecommentModels))
+	livestreamIDs := make([]int64, len(livecommentModels))
+	for i, livecommentModel := range livecommentModels {
+		commentOwnerIDs[i] = livecommentModel.UserID
+		livestreamIDs[i] = livecommentModel.LivestreamID
+	}
+
+	query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", commentOwnerIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	commentOwnerModels := []UserModel{}
+	if err := tx.SelectContext(ctx, &commentOwnerModels, query, args...); err != nil {
+		return nil, err
+	}
+	commentOwners := make(map[int64]User)
+	for _, commentOwnerModel := range commentOwnerModels {
+		commentOwner, err := fillUserResponse(ctx, tx, commentOwnerModel)
+		if err != nil {
+			return nil, err
+		}
+		commentOwners[commentOwnerModel.ID] = commentOwner
+	}
+
+	query, args, err = sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = tx.Rebind(query)
+	livestreamModels := []*LivestreamModel{}
+	if err := tx.SelectContext(ctx, &livestreamModels, query, args...); err != nil {
+		return nil, err
+	}
+	livestreams, err := fillLivestreamResponseBulk(ctx, tx, livestreamModels)
+	if err != nil {
+		return nil, err
+	}
+	livecommentMap := make(map[int64]Livestream)
+	for _, livestream := range livestreams {
+		livecommentMap[livestream.ID] = livestream
+	}
+
+	livecomments := make([]Livecomment, len(livecommentModels))
+	for i, livecommentModel := range livecommentModels {
+		livecomment := Livecomment{
+			ID:         livecommentModel.ID,
+			User:       commentOwners[livecommentModel.UserID],
+			Livestream: livecommentMap[livecommentModel.LivestreamID],
+			Comment:    livecommentModel.Comment,
+			Tip:        livecommentModel.Tip,
+			CreatedAt:  livecommentModel.CreatedAt,
+		}
+		livecomments[i] = livecomment
+	}
+
+	return livecomments, nil
 }
 
 func fillLivecommentReportResponse(ctx context.Context, tx *sqlx.Tx, reportModel LivecommentReportModel) (LivecommentReport, error) {
