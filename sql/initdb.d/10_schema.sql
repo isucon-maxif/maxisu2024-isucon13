@@ -23,6 +23,7 @@ CREATE TABLE `themes` (
   `user_id` BIGINT NOT NULL,
   `dark_mode` BOOLEAN NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX themes_user_id ON themes(`user_id`);
 
 -- ライブ配信
 CREATE TABLE `livestreams` (
@@ -35,6 +36,7 @@ CREATE TABLE `livestreams` (
   `start_at` BIGINT NOT NULL,
   `end_at` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX livestreams_user_id ON livestreams(`user_id`);
 
 -- ライブ配信予約枠
 CREATE TABLE `reservation_slots` (
@@ -43,6 +45,7 @@ CREATE TABLE `reservation_slots` (
   `start_at` BIGINT NOT NULL,
   `end_at` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX slots_range ON reservation_slots(`start_at`, `end_at`);
 
 -- ライブストリームに付与される、サービスで定義されたタグ
 CREATE TABLE `tags` (
@@ -57,6 +60,7 @@ CREATE TABLE `livestream_tags` (
   `livestream_id` BIGINT NOT NULL,
   `tag_id` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX livestream_tags_tag_id_live_id ON livestream_tags(`tag_id`, `livestream_id` DESC);
 
 -- ライブ配信視聴履歴
 CREATE TABLE `livestream_viewers_history` (
@@ -75,6 +79,7 @@ CREATE TABLE `livecomments` (
   `tip` BIGINT NOT NULL DEFAULT 0,
   `created_at` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX livecomments_live_id_created_at ON livecomments(`livestream_id`, `created_at` DESC);
 
 -- ユーザからのライブコメントのスパム報告
 CREATE TABLE `livecomment_reports` (
@@ -94,6 +99,7 @@ CREATE TABLE `ng_words` (
   `created_at` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 CREATE INDEX ng_words_word ON ng_words(`word`);
+CREATE INDEX ng_words_user_id_live_id ON ng_words(`user_id`, `livestream_id`);
 
 -- ライブ配信に対するリアクション
 CREATE TABLE `reactions` (
@@ -104,3 +110,4 @@ CREATE TABLE `reactions` (
   `emoji_name` VARCHAR(255) NOT NULL,
   `created_at` BIGINT NOT NULL
 ) ENGINE=InnoDB CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX reactions_live_id_created_at ON reactions(`livestream_id`, `created_at` DESC);
